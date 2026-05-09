@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>钱包交易监控 — four.meme & PancakeSwap</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --blue: #58a6ff;
+      --purple: #bc8cff;
+      --cake: #1fc7d4;
+      --four: #f0b90b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size: 15px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.5px;
+    }
+    .status-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+    .badge {
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .badge-four { background: rgba(240,185,11,0.15); color: var(--four); border: 1px solid rgba(240,185,11,0.3); }
+    .badge-cake { background: rgba(31,199,212,0.15); color: var(--cake); border: 1px solid rgba(31,199,212,0.3); }
+
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    #tx-count {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    #clear-btn {
+      padding: 7px 18px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    #clear-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+    /* ── Wallet Pills ── */
+    #wallet-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-height: 52px;
+    }
+    .wallet-label {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+    .wallet-pill {
+      padding: 5px 14px;
+      border-radius: 20px;
+      background: rgba(88,166,255,0.1);
+      border: 1px solid rgba(88,166,255,0.3);
+      color: var(--blue);
+      font-size: 13px;
+      font-family: 'Consolas', monospace;
+    }
+    #all-wallets-note {
+      font-size: 14px;
+      color: var(--yellow);
+    }
+
+    /* ── Stats Bar ── */
+    #stats-bar {
+      display: flex;
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .stat-box {
+      flex: 1;
+      background: var(--surface);
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .stat-label { font-size: 13px; color: var(--text-muted); }
+    .stat-value { font-size: 28px; font-weight: 700; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+    .stat-value.yellow { color: var(--yellow); }
+    .stat-value.blue { color: var(--blue); }
+
+    /* ── Filter Bar ── */
+    #filter-bar {
+      padding: 12px 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .filter-label { font-size: 14px; color: var(--text-muted); }
+    .filter-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filter-btn.active, .filter-btn:hover {
+      background: rgba(88,166,255,0.1);
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+    #search-input {
+      margin-left: auto;
+      padding: 7px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      width: 300px;
+      outline: none;
+    }
+    #search-input:focus { border-color: var(--blue); }
+    #search-input::placeholder { color: var(--text-muted); }
+
+    /* ── Table ── */
+    #table-wrap {
+      overflow-x: auto;
+      flex: 1;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead th {
+      background: var(--surface);
+      padding: 13px 20px;
+      text-align: left;
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    tbody tr {
+      border-bottom: 1px solid rgba(48,54,61,0.6);
+      transition: background 0.1s;
+    }
+    tbody tr:hover { background: rgba(22,27,34,0.8); }
+    tbody tr.new-row {
+      animation: slideIn 0.4s ease-out;
+    }
+    @keyframes slideIn {
+      from { background: rgba(88,166,255,0.08); }
+      to   { background: transparent; }
+    }
+    td {
+      padding: 14px 20px;
+      vertical-align: middle;
+      white-space: nowrap;
+      font-size: 15px;
+    }
+
+    /* DEX badge */
+    .dex-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .dex-fourmeme { background: rgba(240,185,11,0.12); color: var(--four); border: 1px solid rgba(240,185,11,0.25); }
+    .dex-pancakeswap { background: rgba(31,199,212,0.12); color: var(--cake); border: 1px solid rgba(31,199,212,0.25); }
+
+    /* Trade type badge */
+    .type-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .type-buy  { background: rgba(63,185,80,0.15); color: var(--green); }
+    .type-sell { background: rgba(248,81,73,0.15); color: var(--red); }
+    .type-swap { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+    /* Amount cells */
+    .amount-bnb  { color: var(--yellow); }
+    .amount-token { color: var(--text); }
+    .token-symbol { color: var(--blue); margin-left: 4px; font-size: 15px; }
+
+    /* Wallet cell */
+    .wallet-cell { font-family: 'Consolas', monospace; color: var(--text-muted); font-size: 14px; }
+    .wallet-cell a { color: inherit; text-decoration: none; }
+    .wallet-cell a:hover { color: var(--blue); }
+
+    /* Tx hash cell */
+    .tx-cell a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-family: 'Consolas', monospace;
+      font-size: 14px;
+    }
+    .tx-cell a:hover { color: var(--blue); }
+
+    /* Time cell */
+    .time-cell { color: var(--text-muted); font-size: 14px; }
+
+    /* Empty state */
+    #empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 100px 24px;
+      gap: 16px;
+      color: var(--text-muted);
+    }
+    #empty-state .icon { font-size: 56px; }
+    #empty-state p { font-size: 16px; }
+
+    /* ── Layout ── */
+    #main {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 44px);
+    }
+    #content-area {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* Live pulse */
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(63,185,80,0.1);
+      border: 1px solid rgba(63,185,80,0.25);
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .live-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    @media (max-width: 768px) {
+      #search-input { width: 180px; }
+      .stat-value { font-size: 20px; }
+      td { font-size: 14px; padding: 12px 14px; }
+      header { padding: 14px 16px; }
+      #filter-bar { padding: 10px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="status-dot" id="status-dot"></span>
+  <h1>钱包交易监控</h1>
+  <span class="badge badge-four">four.meme</span>
+  <span class="badge badge-cake">PancakeSwap</span>
+  <div id="live-indicator" style="display:none" class="live-pill">
+    <span class="live-dot"></span>LIVE
+  </div>
+  <div class="header-right">
+    <span id="tx-count">0 笔交易</span>
+    <button id="clear-btn">清空</button>
+  </div>
+</header>
+
+<div id="wallet-bar">
+  <span class="wallet-label">监控钱包：</span>
+  <div id="wallet-list"></div>
+</div>
+
+<div id="main">
+  <!-- Stats -->
+  <div id="stats-bar">
+    <div class="stat-box">
+      <span class="stat-label">总交易数</span>
+      <span class="stat-value blue" id="stat-total">0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">买入</span>
+      <span class="stat-value green" id="stat-buy">0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">卖出</span>
+      <span class="stat-value red" id="stat-sell">0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Four.meme</span>
+      <span class="stat-value yellow" id="stat-four">0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">PancakeSwap</span>
+      <span class="stat-value" style="color:var(--cake)" id="stat-cake">0</span>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div id="filter-bar">
+    <span class="filter-label">筛选：</span>
+    <button class="filter-btn active" data-filter="all">全部</button>
+    <button class="filter-btn" data-filter="fourmeme">Four.meme</button>
+    <button class="filter-btn" data-filter="pancakeswap">PancakeSwap</button>
+    <button class="filter-btn" data-filter="buy">买入</button>
+    <button class="filter-btn" data-filter="sell">卖出</button>
+    <input id="search-input" type="text" placeholder="搜索 钱包 / Token / TxHash…" />
+  </div>
+
+  <!-- Content -->
+  <div id="content-area">
+    <div id="empty-state">
+      <span class="icon">📡</span>
+      <p>等待交易数据…</p>
+      <p style="font-size:12px">连接到 BSC 节点后，交易将实时显示</p>
+    </div>
+    <div id="table-wrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>DEX</th>
+            <th>类型</th>
+            <th>钱包</th>
+            <th>Token</th>
+            <th>BNB 数量</th>
+            <th>Token 数量</th>
+            <th>区块</th>
+            <th>交易哈希</th>
+          </tr>
+        </thead>
+        <tbody id="tx-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──
+  let allTrades = [];
+  let activeFilter = 'all';
+  let searchText = '';
+  let ws;
+  let reconnectTimer;
+
+  // ── WebSocket ──
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}`);
+
+    ws.onopen = () => {
+      clearTimeout(reconnectTimer);
+      document.getElementById('status-dot').classList.add('connected');
+      document.getElementById('live-indicator').style.display = 'inline-flex';
+    };
+
+    ws.onclose = () => {
+      document.getElementById('status-dot').classList.remove('connected');
+      document.getElementById('live-indicator').style.display = 'none';
+      reconnectTimer = setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') {
+        allTrades = msg.data;
+        renderTable(false);
+      } else if (msg.type === 'trade') {
+        allTrades.unshift(msg.data);
+        if (allTrades.length > 500) allTrades.pop();
+        renderTable(true);
+      }
+      updateStats();
+    };
+  }
+
+  // ── Fetch config ──
+  fetch('/api/config').then(r => r.json()).then(cfg => {
+    const el = document.getElementById('wallet-list');
+    if (cfg.targetWallets && cfg.targetWallets.length > 0) {
+      el.innerHTML = cfg.targetWallets.map(w =>
+        `<span class="wallet-pill">${w.slice(0, 6)}…${w.slice(-4)}</span>`
+      ).join('');
+    } else {
+      el.innerHTML = `<span id="all-wallets-note">⚠️ 未配置目标钱包，监控所有钱包（高流量）</span>`;
+    }
+  });
+
+  // ── Render ──
+  function getFiltered() {
+    return allTrades.filter(t => {
+      if (activeFilter === 'fourmeme' && t.dex !== 'fourmeme') return false;
+      if (activeFilter === 'pancakeswap' && t.dex !== 'pancakeswap') return false;
+      if (activeFilter === 'buy' && t.type !== 'buy') return false;
+      if (activeFilter === 'sell' && t.type !== 'sell') return false;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        return (
+          t.wallet.includes(q) ||
+          (t.txHash && t.txHash.toLowerCase().includes(q)) ||
+          (t.tokenSymbol && t.tokenSymbol.toLowerCase().includes(q)) ||
+          (t.tokenAddress && t.tokenAddress.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  }
+
+  function renderTable(addNew = false) {
+    const filtered = getFiltered();
+    const tbody = document.getElementById('tx-tbody');
+    const empty = document.getElementById('empty-state');
+    const wrap = document.getElementById('table-wrap');
+
+    if (filtered.length === 0) {
+      empty.style.display = 'flex';
+      wrap.style.display = 'none';
+      document.getElementById('tx-count').textContent = '0 笔交易';
+      return;
+    }
+
+    empty.style.display = 'none';
+    wrap.style.display = 'block';
+    document.getElementById('tx-count').textContent = `${filtered.length} 笔交易`;
+
+    if (addNew && filtered.length > 0 && allTrades[0] === filtered[0]) {
+      // Prepend only the new row
+      const row = buildRow(filtered[0], true);
+      tbody.insertBefore(row, tbody.firstChild);
+      // Remove excess rows
+      while (tbody.children.length > 500) tbody.removeChild(tbody.lastChild);
+    } else {
+      // Full re-render
+      tbody.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      filtered.forEach(t => frag.appendChild(buildRow(t, false)));
+      tbody.appendChild(frag);
+    }
+  }
+
+  function buildRow(t, isNew) {
+    const tr = document.createElement('tr');
+    if (isNew) tr.classList.add('new-row');
+
+    const bscscanBase = 'https://bscscan.com';
+    const time = new Date(t.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+    const date = new Date(t.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+
+    const dexLabel = t.dex === 'fourmeme' ? 'Four.meme' : 'PancakeSwap';
+    const dexClass = t.dex === 'fourmeme' ? 'dex-fourmeme' : 'dex-pancakeswap';
+    const dexIcon  = t.dex === 'fourmeme' ? '🐸' : '🥞';
+
+    const typeLabel = { buy: '买入', sell: '卖出', swap: '兑换' }[t.type] || t.type;
+    const typeClass = `type-${t.type}`;
+
+    const walletShort = `${t.wallet.slice(0, 6)}…${t.wallet.slice(-4)}`;
+    const txShort = t.txHash ? `${t.txHash.slice(0, 8)}…${t.txHash.slice(-6)}` : '—';
+
+    const bnbAmount = t.amountBNB && t.amountBNB !== '0'
+      ? `<span class="amount-bnb">${parseFloat(t.amountBNB).toFixed(4)} BNB</span>` : '—';
+
+    const tokenAmount = t.amountToken && t.amountToken !== '0'
+      ? `<span class="amount-token">${formatLargeNum(t.amountToken)}</span>` : '—';
+
+    const tokenCell = t.tokenSymbol
+      ? `<span class="token-symbol">${t.tokenSymbol}</span>${t.tokenAddress ? ` <a href="${bscscanBase}/token/${t.tokenAddress}" target="_blank" style="color:var(--text-muted);font-size:10px">↗</a>` : ''}`
+      : '—';
+
+    tr.innerHTML = `
+      <td class="time-cell">${date} ${time}</td>
+      <td><span class="dex-badge ${dexClass}">${dexIcon} ${dexLabel}</span></td>
+      <td><span class="type-badge ${typeClass}">${typeLabel}</span></td>
+      <td class="wallet-cell"><a href="${bscscanBase}/address/${t.wallet}" target="_blank">${walletShort}</a></td>
+      <td>${tokenCell}</td>
+      <td>${bnbAmount}</td>
+      <td>${tokenAmount}</td>
+      <td class="time-cell">${t.blockNumber || '—'}</td>
+      <td class="tx-cell"><a href="${bscscanBase}/tx/${t.txHash}" target="_blank">${txShort}</a></td>
+    `;
+    return tr;
+  }
+
+  function formatLargeNum(val) {
+    const n = parseFloat(val);
+    if (isNaN(n)) return val;
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+    return n.toFixed(4);
+  }
+
+  // ── Stats ──
+  function updateStats() {
+    document.getElementById('stat-total').textContent = allTrades.length;
+    document.getElementById('stat-buy').textContent   = allTrades.filter(t => t.type === 'buy').length;
+    document.getElementById('stat-sell').textContent  = allTrades.filter(t => t.type === 'sell').length;
+    document.getElementById('stat-four').textContent  = allTrades.filter(t => t.dex === 'fourmeme').length;
+    document.getElementById('stat-cake').textContent  = allTrades.filter(t => t.dex === 'pancakeswap').length;
+  }
+
+  // ── Filters ──
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = btn.dataset.filter;
+      renderTable(false);
+    });
+  });
+
+  document.getElementById('search-input').addEventListener('input', e => {
+    searchText = e.target.value.trim();
+    renderTable(false);
+  });
+
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    allTrades = [];
+    renderTable(false);
+    updateStats();
+  });
+
+  // ── Start ──
+  connect();
+</script>
+</body>
+</html>

@@ -1,90 +1,108 @@
 import { ethers } from 'ethers';
-import { CopyTradingBot } from '../core/bot';
-import { Config, FourMemeEvent } from '../types';
+import { Config, TradeEvent } from '../types';
 import { logger } from '../utils/logger';
-import { FOUR_MEME_ABI } from '../utils/constants';
-import { executeFourMemeTrade } from './executor';
+import { FOUR_MEME_ABI, ERC20_ABI } from '../utils/constants';
+import { randomUUID } from 'crypto';
 
 export function runFourMemeListener(
-  bot: CopyTradingBot,
   wsProvider: ethers.WebSocketProvider,
-  config: Config
+  provider: ethers.JsonRpcProvider,
+  config: Config,
+  onTrade: (event: TradeEvent) => void
 ): void {
-  logger.info('Setting up Four.meme event listener...');
+  logger.info(`[Four.meme] Setting up listener on contract: ${config.fourMemeAddress}`);
 
-  const memeInterface = new ethers.Interface(FOUR_MEME_ABI);
-  const buyTopic = memeInterface.getEvent('TokenPurchase').topicHash;
-  const sellTopic = memeInterface.getEvent('TokenSale').topicHash;
+  const iface = new ethers.Interface(FOUR_MEME_ABI);
+  const buyTopic = iface.getEvent('TokenPurchase')!.topicHash;
+  const sellTopic = iface.getEvent('TokenSale')!.topicHash;
 
-  wsProvider.on('logs', async (log: ethers.Log) => {
+  const filter = {
+    address: config.fourMemeAddress,
+    topics: [[buyTopic, sellTopic]],
+  };
+
+  wsProvider.on(filter, async (log: ethers.Log) => {
     try {
-      if (log.topics[0] === buyTopic || log.topics[0] === sellTopic) {
-        await handleFourMemeEvent(log, bot, config);
+      const isBuy = log.topics[0] === buyTopic;
+      const tx = await provider.getTransaction(log.transactionHash!);
+      if (!tx) return;
+
+      const wallet = tx.from.toLowerCase();
+
+      // If target wallets configured, filter; otherwise monitor all
+      if (config.targetWallets.length > 0 && !config.targetWallets.includes(wallet)) {
+        return;
       }
+
+      let decoded: ethers.Result;
+      let amountBNB = '0';
+      let amountToken = '0';
+      let tokenAddress = '';
+
+      try {
+        if (isBuy) {
+          decoded = iface.decodeEventLog('TokenPurchase', log.data, log.topics);
+          amountBNB = ethers.formatEther(decoded.ethAmount);
+          amountToken = ethers.formatUnits(decoded.tokensReceived, 18);
+        } else {
+          decoded = iface.decodeEventLog('TokenSale', log.data, log.topics);
+          amountToken = ethers.formatUnits(decoded.tokensSold, 18);
+          amountBNB = ethers.formatEther(decoded.ethReceived);
+        }
+      } catch {
+        // fallback: parse raw tx data
+      }
+
+      // Try to get token address from tx data
+      try {
+        const receipt = await provider.getTransactionReceipt(log.transactionHash!);
+        if (receipt) {
+          // Look for token transfers in logs
+          for (const l of receipt.logs) {
+            if (l.address.toLowerCase() !== config.fourMemeAddress.toLowerCase()) {
+              tokenAddress = l.address;
+              break;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+
+      let tokenSymbol = tokenAddress ? await getTokenSymbol(provider, tokenAddress) : 'MEME';
+
+      const event: TradeEvent = {
+        id: randomUUID(),
+        txHash: log.transactionHash!,
+        blockNumber: log.blockNumber,
+        timestamp: Date.now(),
+        wallet,
+        dex: 'fourmeme',
+        type: isBuy ? 'buy' : 'sell',
+        tokenAddress: tokenAddress || undefined,
+        tokenSymbol,
+        amountBNB,
+        amountToken,
+      };
+
+      logger.info(`[Four.meme] ${isBuy ? 'BUY' : 'SELL'} | wallet: ${wallet} | tx: ${log.transactionHash}`);
+      onTrade(event);
     } catch (error) {
-      logger.error('Error processing Four.meme log:', error);
+      logger.error('[Four.meme] Error processing log:', error);
     }
   });
 
-  logger.info('Four.meme listener started');
+  logger.info('[Four.meme] Listener started');
 }
 
-async function handleFourMemeEvent(
-  log: ethers.Log,
-  bot: CopyTradingBot,
-  config: Config
-): Promise<void> {
+const symbolCache = new Map<string, string>();
+
+async function getTokenSymbol(provider: ethers.JsonRpcProvider, address: string): Promise<string> {
+  if (symbolCache.has(address)) return symbolCache.get(address)!;
   try {
-    const tx = await bot.getProvider().getTransaction(log.transactionHash!);
-    if (!tx) {
-      logger.warn(`Transaction not found: ${log.transactionHash}`);
-      return;
-    }
-
-    const initiator = tx.from.toLowerCase();
-    
-    // Check if we should mirror this trade
-    if (!bot.shouldMirrorTrade(initiator)) {
-      return;
-    }
-
-    const isBuy = log.topics[0] === new ethers.Interface(FOUR_MEME_ABI).getEvent('TokenPurchase').topicHash;
-    
-    logger.info(`Detected Four.meme ${isBuy ? 'buy' : 'sell'} from target wallet: ${initiator}`);
-    logger.info(`Transaction: ${log.transactionHash}`);
-
-    // Parse the event
-    const event = parseFourMemeEvent(log, isBuy);
-    
-    if (event) {
-      logger.info(`Parsed ${isBuy ? 'buy' : 'sell'} event`);
-      
-      // Execute copy trade
-      await executeFourMemeTrade(event, bot, config);
-    }
-  } catch (error) {
-    logger.error('Error handling Four.meme event:', error);
-  }
-}
-
-function parseFourMemeEvent(log: ethers.Log, isBuy: boolean): FourMemeEvent | null {
-  try {
-    // Parse Four.meme event
-    // This is simplified - adjust based on actual contract ABI
-    
-    return {
-      txHash: log.transactionHash!,
-      blockNumber: log.blockNumber!,
-      initiator: ethers.getAddress(ethers.dataSlice(log.topics[1], 12)),
-      dex: 'fourmeme',
-      isBuy,
-      tokenIn: '',
-      tokenOut: '',
-      amountIn: 0n,
-      amountOut: 0n,
-    };
-  } catch (error) {
-    logger.error('Error parsing Four.meme event:', error);
-    return null;
+    const contract = new ethers.Contract(address, ERC20_ABI, provider);
+    const symbol: string = await contract.symbol();
+    symbolCache.set(address, symbol);
+    return symbol;
+  } catch {
+    return address.slice(0, 6) + '…';
   }
 }
